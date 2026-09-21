@@ -79,32 +79,26 @@ jobs:
 
           # Seed A1 instead of a Moonraker placeholder on this separate package.
           def printers_repo(s):
-              old = '''            val presets = parseExtruderPresets(legacyExtruderPresetsJson ?: "")
-              val printer = Printer(
-                  id = id,
-                  nickname = "Printer 1",
-                  moonrakerUrl = legacyUrl ?: "",
-                  extruderPresets = presets,
-              )
-              return PrintersConfig(printers = listOf(printer), activeId = id)'''
+              pattern = r'''(?ms)^\s*val presets = parseExtruderPresets\(legacyExtruderPresetsJson \?: ""\)\n\s*val printer = Printer\(\n\s*id = id,\n\s*nickname = "Printer 1",\n\s*moonrakerUrl = legacyUrl \?: "",\n\s*extruderPresets = presets,\n\s*\)\n\s*return PrintersConfig\(printers = listOf\(printer\), activeId = id\)'''
               new = '''            val presets = parseExtruderPresets(legacyExtruderPresetsJson ?: "")
-              val printer = Printer(
-                  id = id,
-                  nickname = "A1",
-                  kind = PrinterKind.BAMBU_LAN,
-                  moonrakerUrl = "",
-                  bambu = BambuConfig(
-                      ip = "",
-                      accessCode = "",
-                      serial = "",
-                      model = BambuModel.A1,
-                  ),
-                  extruderPresets = presets,
-              )
-              return PrintersConfig(printers = listOf(printer), activeId = id)'''
-              if old not in s:
+            val printer = Printer(
+                id = id,
+                nickname = "A1",
+                kind = PrinterKind.BAMBU_LAN,
+                moonrakerUrl = "",
+                bambu = BambuConfig(
+                    ip = "",
+                    accessCode = "",
+                    serial = "",
+                    model = BambuModel.A1,
+                ),
+                extruderPresets = presets,
+            )
+            return PrintersConfig(printers = listOf(printer), activeId = id)'''
+              out, count = re.subn(pattern, new, s, count=1)
+              if count != 1:
                   raise SystemExit("PrintersRepository source mismatch")
-              return s.replace(old, new, 1)
+              return out
           rw("app/src/main/java/com/u1/slicer/data/PrintersRepository.kt", printers_repo)
 
           # Normal app path only allows Bambu A1/A1 mini and defaults to A1.
