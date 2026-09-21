@@ -113,38 +113,6 @@ jobs:
                   1
               )
               s = s.replace("bambuModel: BambuModel = BambuModel.P1S,", "bambuModel: BambuModel = BambuModel.A1,")
-
-              needle = '''    ) {
-          viewModelScope.launch {
-              val printer = buildPrinter(
-                  id = java.util.UUID.randomUUID().toString(),'''
-              repl = '''    ) {
-          require(kind == PrinterKind.BAMBU_LAN) { "A1 Pocket Slicer only supports Bambu LAN" }
-          require(bambuModel == BambuModel.A1 || bambuModel == BambuModel.A1_MINI) {
-              "A1 Pocket Slicer only supports A1 and A1 mini"
-          }
-          viewModelScope.launch {
-              val printer = buildPrinter(
-                  id = java.util.UUID.randomUUID().toString(),'''
-              if needle not in s:
-                  raise SystemExit("addPrinter source mismatch")
-              s = s.replace(needle, repl, 1)
-
-              needle2 = '''    ) {
-          viewModelScope.launch {
-              val current = printerList.value.firstOrNull { it.id == id } ?: return@launch
-              val updated = buildPrinter('''
-              repl2 = '''    ) {
-          require(kind == PrinterKind.BAMBU_LAN) { "A1 Pocket Slicer only supports Bambu LAN" }
-          require(bambuModel == BambuModel.A1 || bambuModel == BambuModel.A1_MINI) {
-              "A1 Pocket Slicer only supports A1 and A1 mini"
-          }
-          viewModelScope.launch {
-              val current = printerList.value.firstOrNull { it.id == id } ?: return@launch
-              val updated = buildPrinter('''
-              if needle2 not in s:
-                  raise SystemExit("updatePrinter source mismatch")
-              s = s.replace(needle2, repl2, 1)
               return s
           rw("app/src/main/java/com/u1/slicer/printer/PrinterViewModel.kt", printer_vm)
 
