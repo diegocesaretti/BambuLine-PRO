@@ -1,0 +1,247 @@
+name: Build A1 Pocket Slicer APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-a1-pocket.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout build runner
+        uses: actions/checkout@v4
+
+      - name: Checkout slicer upstream
+        uses: actions/checkout@v4
+        with:
+          repository: taylormadearmy/u1-slicer-for-android
+          ref: 712d9fc41e8d35b328a87cfd8144434049f77ae7
+          path: src
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+          cache-dependency-path: src/**/*.gradle*
+
+      - name: Convert to A1 / A1 mini edition
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path("src")
+
+          def p(rel):
+              return root / rel
+
+          def rw(rel, fn):
+              path = p(rel)
+              s = path.read_text(encoding="utf-8")
+              n = fn(s)
+              if n == s:
+                  print("unchanged", rel)
+              else:
+                  path.write_text(n, encoding="utf-8")
+                  print("patched", rel)
+
+          # Separate install + edition branding.
+          def gradle(s):
+              s = re.sub(r'applicationId\s+"com\.u1\.slicer\.orca"', 'applicationId "com.a1pocket.slicer"', s, count=1)
+              s = re.sub(r'versionCode\s+\d+', 'versionCode 40101', s, count=1)
+              s = re.sub(r'versionName\s+"[^"]+"', 'versionName "4.0.1-a1.1"', s, count=1)
+              return s
+          rw("app/build.gradle", gradle)
+          rw("app/src/main/res/values/strings.xml",
+             lambda s: s.replace('<string name="app_name">Your One Slicer</string>',
+                                 '<string name="app_name">A1 Pocket Slicer</string>'))
+
+          # Bambu LAN is always enabled on a clean install.
+          def settings_repo(s):
+              return s.replace(
+                  '/** Bambu support is opt-in because it is still an early beta feature. */\n'
+                  '    val bambuBetaEnabled: Flow<Boolean> = context.appDataStore.data.map { prefs ->\n'
+                  '        prefs[Keys.BAMBU_BETA_ENABLED] ?: false\n'
+                  '    }',
+                  '/** A1 edition: direct Bambu LAN is enabled by default. */\n'
+                  '    val bambuBetaEnabled: Flow<Boolean> = context.appDataStore.data.map { prefs ->\n'
+                  '        prefs[Keys.BAMBU_BETA_ENABLED] ?: true\n'
+                  '    }'
+              )
+          rw("app/src/main/java/com/u1/slicer/data/SettingsRepository.kt", settings_repo)
+
+          # Seed A1 instead of a Moonraker placeholder on this separate package.
+          def printers_repo(s):
+              old = '''            val presets = parseExtruderPresets(legacyExtruderPresetsJson ?: "")
+              val printer = Printer(
+                  id = id,
+                  nickname = "Printer 1",
+                  moonrakerUrl = legacyUrl ?: "",
+                  extruderPresets = presets,
+              )
+              return PrintersConfig(printers = listOf(printer), activeId = id)'''
+              new = '''            val presets = parseExtruderPresets(legacyExtruderPresetsJson ?: "")
+              val printer = Printer(
+                  id = id,
+                  nickname = "A1",
+                  kind = PrinterKind.BAMBU_LAN,
+                  moonrakerUrl = "",
+                  bambu = BambuConfig(
+                      ip = "",
+                      accessCode = "",
+                      serial = "",
+                      model = BambuModel.A1,
+                  ),
+                  extruderPresets = presets,
+              )
+              return PrintersConfig(printers = listOf(printer), activeId = id)'''
+              if old not in s:
+                  raise SystemExit("PrintersRepository source mismatch")
+              return s.replace(old, new, 1)
+          rw("app/src/main/java/com/u1/slicer/data/PrintersRepository.kt", printers_repo)
+
+          # Normal app path only allows Bambu A1/A1 mini and defaults to A1.
+          def printer_vm(s):
+              s = s.replace(
+                  '''        viewModelScope.launch {
+              if (!settingsRepo.bambuBetaEnabled.first()) disableBambuMode()
+          }
+          libraryRepo.ensureLoaded(viewModelScope)''',
+                  '''        // A1 edition: Bambu LAN is the primary transport.
+          libraryRepo.ensureLoaded(viewModelScope)''',
+                  1
+              )
+              s = s.replace("bambuModel: BambuModel = BambuModel.P1S,", "bambuModel: BambuModel = BambuModel.A1,")
+
+              needle = '''    ) {
+          viewModelScope.launch {
+              val printer = buildPrinter(
+                  id = java.util.UUID.randomUUID().toString(),'''
+              repl = '''    ) {
+          require(kind == PrinterKind.BAMBU_LAN) { "A1 Pocket Slicer only supports Bambu LAN" }
+          require(bambuModel == BambuModel.A1 || bambuModel == BambuModel.A1_MINI) {
+              "A1 Pocket Slicer only supports A1 and A1 mini"
+          }
+          viewModelScope.launch {
+              val printer = buildPrinter(
+                  id = java.util.UUID.randomUUID().toString(),'''
+              if needle not in s:
+                  raise SystemExit("addPrinter source mismatch")
+              s = s.replace(needle, repl, 1)
+
+              needle2 = '''    ) {
+          viewModelScope.launch {
+              val current = printerList.value.firstOrNull { it.id == id } ?: return@launch
+              val updated = buildPrinter('''
+              repl2 = '''    ) {
+          require(kind == PrinterKind.BAMBU_LAN) { "A1 Pocket Slicer only supports Bambu LAN" }
+          require(bambuModel == BambuModel.A1 || bambuModel == BambuModel.A1_MINI) {
+              "A1 Pocket Slicer only supports A1 and A1 mini"
+          }
+          viewModelScope.launch {
+              val current = printerList.value.firstOrNull { it.id == id } ?: return@launch
+              val updated = buildPrinter('''
+              if needle2 not in s:
+                  raise SystemExit("updatePrinter source mismatch")
+              s = s.replace(needle2, repl2, 1)
+              return s
+          rw("app/src/main/java/com/u1/slicer/printer/PrinterViewModel.kt", printer_vm)
+
+          # Add/Edit printer: fixed to Bambu LAN, only A1 family appears.
+          def edit_dialog(s):
+              s = s.replace(
+                  'var kind by remember { mutableStateOf(existing?.kind ?: PrinterKind.MOONRAKER) }',
+                  'var kind by remember { mutableStateOf(PrinterKind.BAMBU_LAN) }'
+              )
+              s = s.replace(
+                  'var bambuModel by remember { mutableStateOf(existing?.bambu?.model ?: BambuModel.P1S) }',
+                  'var bambuModel by remember { mutableStateOf(existing?.bambu?.model?.takeIf { it == BambuModel.A1 || it == BambuModel.A1_MINI } ?: BambuModel.A1) }'
+              )
+              s = s.replace('    val canChangeKind = canChangePrinterKind(existing)\n',
+                            '    val canChangeKind = false\n')
+              s = s.replace('BambuModel.entries.forEach { model ->',
+                            'listOf(BambuModel.A1, BambuModel.A1_MINI).forEach { model ->')
+              s = s.replace('Text("Moonraker")', 'Text("A1 edition")')
+              s = s.replace('Text(if (bambuEnabled) "Bambu LAN" else "Bambu (off)")',
+                            'Text("Bambu LAN")')
+              s = s.replace('label = { Text("Bambu model") },',
+                            'label = { Text("Printer") },')
+              s = s.replace(
+                  '"Use the printer\'s LAN-only access code and serial number. Upload and print support depends on printer firmware."',
+                  '"Direct LAN connection for Bambu Lab A1 / A1 mini. AMS Lite is read live after connecting."'
+              )
+              return s
+          rw("app/src/main/java/com/u1/slicer/ui/printer/PrinterEditDialog.kt", edit_dialog)
+
+          # A1-first wording. Existing upstream implementation already supplies:
+          # on-device Orca slicing, AMS inventory/sync, AMS mapping, FTPS upload,
+          # MQTT print start, camera and pause/resume/cancel for A1/A1 mini.
+          rw("app/src/main/java/com/u1/slicer/ui/PrinterScreen.kt",
+             lambda s: s.replace('Text("Sync")', 'Text("Sync AMS Lite")')
+                         .replace('"Bambu LAN"', '"A1 / A1 mini · LAN"', 1)
+                         .replace('"Monitoring and limited controls are available. Some Moonraker-only controls are intentionally unavailable."',
+                                  '"Direct A1/A1 mini monitoring, camera, AMS Lite sync, upload and print control."'))
+
+          rw("app/src/main/java/com/u1/slicer/MainActivity.kt",
+             lambda s: s.replace('"Use loaded printer spools"', '"Use AMS Lite spools"'))
+
+          def printer_card(s):
+              s = s.replace(
+                  'if (bambuEnabled) "Moonraker is the stable Snapmaker path. Bambu is enabled in beta mode."\n'
+                  '                else "Moonraker is the stable Snapmaker path. Enable Bambu beta support in Settings to add a Bambu printer."',
+                  '"A1 Pocket Slicer is dedicated to direct-LAN Bambu Lab A1 and A1 mini."'
+              )
+              return s
+          rw("app/src/main/java/com/u1/slicer/ui/printer/PrintersSettingsCard.kt", printer_card)
+
+          # Make Settings describe this derivative instead of presenting Bambu as optional.
+          def settings_screen(s):
+              s = s.replace('SettingsSection("Experimental printer support") {',
+                            'SettingsSection("A1 / A1 mini") {')
+              s = s.replace('Text("Enable Bambu support", fontWeight = FontWeight.SemiBold)',
+                            'Text("Direct Bambu LAN", fontWeight = FontWeight.SemiBold)')
+              s = s.replace('if (bambuBetaEnabled) "Bambu mode is enabled."\n                            else "Off by default; requires explicit beta acknowledgement."',
+                            '"Always enabled in A1 Pocket Slicer."')
+              s = s.replace(
+                  '''                    val visiblePrinters = if (bambuBetaEnabled) printerList else
+                      printerList.filter { it.kind != com.u1.slicer.data.PrinterKind.BAMBU_LAN }''',
+                  '''                    val visiblePrinters = printerList.filter {
+                      it.kind == com.u1.slicer.data.PrinterKind.BAMBU_LAN &&
+                          (it.bambu?.model == com.u1.slicer.data.BambuModel.A1 ||
+                           it.bambu?.model == com.u1.slicer.data.BambuModel.A1_MINI)
+                  }'''
+              )
+              s = s.replace('bambuEnabled = bambuBetaEnabled,', 'bambuEnabled = true,')
+              s = s.replace('exportLauncher.launch("u1-slicer-backup.json")',
+                            'exportLauncher.launch("a1-pocket-slicer-backup.json")')
+              return s
+          rw("app/src/main/java/com/u1/slicer/ui/SettingsScreen.kt", settings_screen)
+
+          print("A1 Pocket Slicer source conversion complete")
+          PY
+
+      - name: Build release APK
+        working-directory: src
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Collect APK
+        run: |
+          cp src/app/build/outputs/apk/release/app-release.apk A1-Pocket-Slicer-4.0.1-a1.1.apk
+          sha256sum A1-Pocket-Slicer-4.0.1-a1.1.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: A1-Pocket-Slicer-APK
+          path: A1-Pocket-Slicer-4.0.1-a1.1.apk
+          if-no-files-found: error
+          retention-days: 7
