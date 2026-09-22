@@ -4,7 +4,8 @@ on:
   push:
     branches: [main]
     paths:
-      - '.github/workflows/build-a1-pocket.yml'\n      - 'tools/**'
+      - '.github/workflows/build-a1-pocket.yml'
+      - 'tools/**'
   workflow_dispatch:
 
 jobs:
