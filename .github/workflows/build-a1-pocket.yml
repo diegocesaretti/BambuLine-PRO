@@ -1,4 +1,4 @@
-name: Build A1 Pocket Slicer APK # a1.3 print-start fix
+name: Build A1 Pocket Slicer APK # a1.4 Handy bridge
 
 on:
   push:
@@ -203,11 +203,16 @@ jobs:
         run: |
           python3 tools/apply_a1_printfix.py
 
+      - name: Apply Bambu Handy bridge
+        shell: bash
+        run: |
+          python3 tools/apply_a1_handy_bridge.py
+
       - name: Test Cloud and SSDP parsers
         working-directory: src
         run: |
           chmod +x gradlew
-          ./gradlew testDebugUnitTest --no-daemon --tests "com.u1.slicer.cloud.BambuCloudParserTest" --tests "com.u1.slicer.printer.A1CurrentFirmwarePrintPayloadTest"
+          ./gradlew testDebugUnitTest --no-daemon --tests "com.u1.slicer.cloud.BambuCloudParserTest" --tests "com.u1.slicer.printer.A1CurrentFirmwarePrintPayloadTest" --tests "com.u1.slicer.printer.A1HandyBridgeTest"
 
       - name: Create signing keystore
         run: |
@@ -228,13 +233,13 @@ jobs:
 
       - name: Collect APK
         run: |
-          cp src/app/build/outputs/apk/release/app-release.apk A1-Pocket-Slicer-4.0.1-a1.3.apk
-          sha256sum A1-Pocket-Slicer-4.0.1-a1.3.apk
+          cp src/app/build/outputs/apk/release/app-release.apk A1-Pocket-Slicer-4.0.1-a1.4.apk
+          sha256sum A1-Pocket-Slicer-4.0.1-a1.4.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: A1-Pocket-Slicer-PrintFix-APK
-          path: A1-Pocket-Slicer-4.0.1-a1.3.apk
+          name: A1-Pocket-Slicer-HandyBridge-APK
+          path: A1-Pocket-Slicer-4.0.1-a1.4.apk
           if-no-files-found: error
           retention-days: 7
