@@ -19,7 +19,36 @@ new = '''            return when {
 if old not in s:
     raise SystemExit("A-series upload path anchor missing")
 s = s.replace(old, new, 1)
+# Keep the matching project URL coherent with the /model location in case
+# a future authorized start provider reuses this helper.
+old_url = '''            return when {
+                model == BambuModel.H2D || isASeries(model) -> "ftp:///$name"
+                else -> "file:///sdcard/cache/$name"
+            }
+'''
+new_url = '''            return when {
+                isASeries(model) -> "ftp:///model/$name"
+                model == BambuModel.H2D -> "ftp:///$name"
+                else -> "file:///sdcard/cache/$name"
+            }
+'''
+if old_url not in s:
+    raise SystemExit("A-series project URL anchor missing")
+s = s.replace(old_url, new_url, 1)
 client.write_text(s, encoding="utf-8")
+
+# The a1.3 regression test runs before/alongside this test suite, so update its
+# expectations after moving the A-series file into /model.
+legacy_test = root / "app/src/test/java/com/u1/slicer/printer/A1CurrentFirmwarePrintPayloadTest.kt"
+if legacy_test.exists():
+    t = legacy_test.read_text(encoding="utf-8")
+    t = t.replace('assertEquals("/$name", DefaultBambuLanClient.projectUploadPath(BambuModel.A1, name))',
+                  'assertEquals("/model/$name", DefaultBambuLanClient.projectUploadPath(BambuModel.A1, name))')
+    t = t.replace('assertEquals("ftp:///$name", DefaultBambuLanClient.projectFileUrl(BambuModel.A1, name))',
+                  'assertEquals("ftp:///model/$name", DefaultBambuLanClient.projectFileUrl(BambuModel.A1, name))')
+    t = t.replace('assertEquals("ftp:///$name", print.getString("url"))',
+                  'assertEquals("ftp:///model/$name", print.getString("url"))')
+    legacy_test.write_text(t, encoding="utf-8")
 
 vm = root / "app/src/main/java/com/u1/slicer/printer/PrinterViewModel.kt"
 s = vm.read_text(encoding="utf-8")
