@@ -1,10 +1,10 @@
-name: Build A1 Pocket Slicer APK # a1.4 Handy bridge
+name: Build A1 Pocket Slicer APK # a1.4 Handy bridge retry
 
 on:
   push:
     branches: [main]
     paths:
-      - '.github/workflows/build-a1-pocket.yml'
+      - '.github/workflows/build-a1-pocket.yml'\n      - 'tools/**'
   workflow_dispatch:
 
 jobs:
